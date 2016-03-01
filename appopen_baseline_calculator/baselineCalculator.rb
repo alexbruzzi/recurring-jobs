@@ -1,7 +1,6 @@
 #!/usr/bin/env ruby
 
 require 'Date'
-require 'Time'
 require 'cassandra'
 
 
@@ -12,6 +11,7 @@ DEBUG = true
 class UserBaselineCalculator
 
   KEYSPACE = 'octo'
+  TIME_WINDOW = 7
 
   # Establishes data base connection and sessions
   def self.establish_connection
@@ -26,14 +26,18 @@ class UserBaselineCalculator
   def initialize(dt = Date.today)
     @ts = dt
     @enterprises = []
+    @nextBaseLine = {}
+    @currBaseline = {}
     prepareStatements
   end
 
+  # Calculates the new baseline and updates the db with
+  #   the new baseline as well as the divergences
   def update
 
     # find all the enterprises
     enterprises = findAllEnterprises
-    DEBUG ? $stdout.puts("Enterprises: #{ enterprises }") : nil
+    DEBUG ? $stdout.puts("** Enterprises: #{ enterprises }") : nil
 
     # Fetch all the user app inits happening today
     # Update the user_appopen_values table
@@ -72,12 +76,22 @@ class UserBaselineCalculator
     @fetchAppOpenStmt = @@session.prepare(
       "SELECT enterpriseid, userid, week, timeofday \
       FROM user_app_open WHERE \
-      enterpriseid = ? AND week IN (?) AND dayofweek = ?"
+      enterpriseid = ? AND week IN ? AND dayofweek = ?"
     )
     @fetchCurrBaselineStmt = @@session.prepare(
-      "SELECT enterpriseid, userid, probability \
+      "SELECT enterpriseid, userid, probability, timeofday \
       FROM user_appopen_baseline \
       WHERE enterpriseid = ? AND dayofweek = ?"
+    )
+    @updateBaselineStmt = @@session.prepare(
+      "INSERT INTO user_appopen_baseline \
+      (enterpriseid, dayofweek, userid, timeofday, probability, updated_at) \
+      VALUES (?, ?, ?, ?, ?, ? )"
+    )
+    @updateDivergenceStmt = @@session.prepare(
+      "INSERT INTO user_appopen_baseline_div \
+      (enterpriseid, userid, dayofweek, timeofday, divergence) \
+      VALUES ( ?, ?, ?, ?, ?)"
     )
   end
 
@@ -113,57 +127,151 @@ class UserBaselineCalculator
     timeOfDay = 0
 
     args = [eid, beginPeriod.to_time.gmtime, endPeriod.to_time.gmtime]
-    DEBUG ? $stdout.puts(args.to_s) : nil
+
     res = @@session.execute(@fetchAppInitStmt, arguments: args)
     res.each do | r |
       dayOfWeek, timeOfDay, week = parseDate(r['created_at'])
       argsx = [eid, r['userid'], dayOfWeek, timeOfDay, week, Time.now ]
-      DEBUG ? $stdout.puts("#{ r['userid'] }, #{ dayOfWeek }, #{ timeOfDay }") : nil
       @@session.execute(@insertAppOpenStmt, arguments: argsx)
     end
   end
 
   # Calculates and returns the new baseline of app.init
   #   for all users for the day
+  # @return [Hash<Cassandra::Uuid => Hash<Fixnum => Hash<Fixnum => Float>>>]
+  #   The calculated baseline
   def calculateNewBaseline
 
+    # Create the data structure for storing app open time per user
     @enterprises.each do | eid |
+      @nextBaseLine[eid] = {}
       weeks = (0..TIME_WINDOW).collect do |d|
         Date.today - (d * 7)
       end.map(&:cweek)
+
+      dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
       args = [eid, weeks, dayOfWeek]
       res = @@session.execute(@fetchAppOpenStmt, arguments: args)
+
+      res.each do |r|
+
+        uid = r['userid']
+        tod = r['timeofday']
+
+        uidStats = @nextBaseLine[eid].fetch(uid, {})
+        todVal = uidStats.fetch(tod, 0) + 1
+        uidStats[tod] = todVal
+
+        uidStats.fetch(uid, {}).merge(uidStats)
+
+        @nextBaseLine[eid][uid] = uidStats
+      end
     end
 
+    DEBUG ? $stdout.puts("** Absolute Vals of new base line: #{ @nextBaseLine }") : nil
+
+    # Calculate the new baseline
+    @nextBaseLine.each do | eid, users |
+      users.each do |uid, tsFreq|
+      sum = 1.0 * tsFreq.values.reduce{ |x,y| x+y }
+        tsFreq.each do |ts, freq|
+          @nextBaseLine[eid][uid][ts] = freq/sum
+        end
+      end
+    end
+
+    DEBUG ? $stdout.puts("** NewBaseLine: #{ @nextBaseLine }") : nil
+
+    @nextBaseLine
   end
 
   # Fetch current baseline
   def fetchCurrentBaseline
+    currBaseline = {}
+    keys = ['enterpriseid', 'userid', 'probability', 'timeofday']
+    dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+
     @enterprises.each do |eid|
+      currBaseline[eid] = {}
       args = [eid, dayOfWeek]
       res = @@session.execute(@fetchCurrBaselineStmt, arguments: args)
+
+      res.each do |r|
+        enterpriseid, uid, prob, ts = r.values_at(*keys)
+        _userBaseline = currBaseline[enterpriseid].fetch(uid, {})
+        _userBaseline[ts] = prob
+        currBaseline[eid][uid] = _userBaseline
+      end
     end
 
+    DEBUG ? $stdout.puts("** CurrBaseLine: #{ currBaseline }") : nil
+    @currBaseline = currBaseline
+    currBaseline
   end
 
   # Update the db with baseline
   # @param [Hash] baseline The baseline which is to be updated
   def updateBaseline(baseline)
+    dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+    @nextBaseLine.each do | eid, users |
+      users.each do |uid, tsProb|
+        tsProb.each do |ts, prob|
+          args = [eid, dayOfWeek , uid, ts, prob, Time.now]
+          @@session.execute(@updateBaselineStmt, arguments: args)
+        end
+      end
+    end
 
   end
 
-  # Finds KL-Divergence between the existingBaseline and the newBaseline
-  def kldivergence(existingBaseline, newBaseline)
-
+  # Calculates the KL-Divergance of two probabilities
+  # https://en.wikipedia.org/wiki/Kullback–Leibler_divergence
+  # @param [Float] p The first or observed probability
+  # @param [Float] q The second or believed probability. Must be non-zero
+  # @return [Float] KL-Divergance score
+  def _klDivergence(p, q)
+    1.0 * p * Math.log(p/q)
   end
 
-  # Updates the divergences
+  # Finds KL-Divergence between new baseline and current baseline
+  # @param [Hash] newBaseline the new (calculated) baseline
+  # @param [Hash] currBaseline the current (believed) baseline
+  def kldivergence(newBaseline, currBaseline)
+    divergenceScores = {}
+    newBaseline.each do | eid, users|
+      divergenceScores[eid] = {}
+      users.each do | uid, tsProb|
+        divergenceScores[eid][uid] = {}
+        tsProb.each do |ts, prob|
+          div = _klDivergence(prob, currBaseline[eid][uid][ts])
+          DEBUG ? $stdout.puts("Divergence Score: #{ div }") : nil
+          divergenceScores[eid][uid][ts] = div
+        end
+      end
+    end
+
+    DEBUG ? $stdout.puts("Divergence Scores: #{ divergenceScores }") : nil
+    divergenceScores
+  end
+
+  # Updates the divergences into database
+  # @param [Hash<Cassandra::Uuid => Hash<Fixnum => Hash<Fixnum => Float>>>] divergences
+  #   The divergences to be updated
   def updateDivergences(divergences)
-
+    dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+    divergences.each do |eid, users|
+      users.each do |uid, tsDiv|
+        tsDiv.each do |ts, div|
+          args = [eid, uid, dayOfWeek, ts, div]
+          @@session.execute(@updateDivergenceStmt, arguments: args)
+        end
+      end
+    end
   end
 
 end
 
+# A JobHandler class to handle all jobs
 class JobHandler
 
   def self.perform
@@ -176,7 +284,6 @@ end
 def main
   $stdout.sync = true
   JobHandler.perform
-
 end
 
 if __FILE__ == $0
