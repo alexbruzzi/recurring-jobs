@@ -71,6 +71,9 @@ class Scorer
 
     # Update divergances in the db
     updateDivergences(divergences)
+
+    # Update app open stats
+    updateAppOpenStats
   end
 
   private
@@ -111,6 +114,11 @@ class Scorer
       "INSERT INTO global_appopen_baseline \
       (enterpriseid, dayofweek, timeofday, probability, updated_at) \
       VALUES (?, ?, ?, ?, ?)"
+    )
+    @updateAppOpenStmt = @@session.prepare(
+      "INSERT INTO appopen_hits \
+      (enterpriseid, dt, hits, updated_at) \
+      VALUES (?, ?, ?, ?)"
     )
   end
 
@@ -320,6 +328,14 @@ class Scorer
         args = [eid, dayOfWeek, ts, prob, Time.now]
         @@session.execute(@updateGlobalBaselineStmt, arguments: args)
       end
+    end
+  end
+
+  # Update app open stats
+  def updateAppOpenStats
+    @appOpenStats.each do |eid, hits|
+      args = [eid, Date.today.to_time, hits.to_i, Time.now]
+      @@session.execute(@updateAppOpenStmt, arguments: args)
     end
   end
 
