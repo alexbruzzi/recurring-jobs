@@ -1,4 +1,4 @@
-soure 'https://rubygems.org'
+source 'https://rubygems.org'
 ruby '2.1.5'
 
 gem 'cassandra-driver'
@@ -6,6 +6,5 @@ gem 'json'
 gem 'resque'
 gem 'resque-scheduler'
 gem 'redis'
-gem 'yaml'
 gem 'gcm'
 gem 'apns'

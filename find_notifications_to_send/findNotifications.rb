@@ -14,8 +14,78 @@ module Notifications
 
   KEYSPACE = 'octo'
 
-  class Sender
+  class TextGenerator
 
+    TEMPLATES = [
+      "Check out this cool new %{ name } for just Rs %{ price }.",
+      "%{ name } is trending in %{ category } right now. Check it out",
+      "You should totally see this %{ name } in %{ category }. It's just for %{ price }"
+    ]
+
+    def generate(product)
+      pHash = {
+        name: product['name'],
+        category: product['categories'].join(','),
+        price: product['price']
+      }
+      TEMPLATES.sample % pHash
+    end
+  end
+
+  class Sender
+    def self.establish_connection
+      @@cluster = Cassandra.cluster
+      @@session = @@cluster.connect(KEYSPACE)
+    end
+
+    def perform(uid, pid, eid)
+
+      msgArgs = {}
+
+      # get the user tokens
+      args = [eid, uid]
+      pushCql = "SELECT pushtoken, userid, pushtype \
+      FROM push_tokens \
+      WHERE enterpriseid = ? \
+      AND userid = ?"
+      res = @@session.execute(pushCql, arguments: args)
+      if res.length > 0
+        r = res.first
+        msgArgs[:pushToken] = r['pushtoken']
+        msgArgs[:pushType] = r['pushtype']
+      end
+
+      # get the enterprise token
+      enterpriseCql = "SELECT pushtype, pushkey \
+      FROM push_keys WHERE enterpriseid = ?"
+      res = @@session.execute(enterpriseCql, arguments: [eid])
+      if res.length > 0
+        r = res.first
+        msgArgs[:enterprisePushKey] = r['pushkey']
+        msgArgs[:enterprisePushType] = r['pushtype']
+      end
+
+      # get the product to be sent
+      productCql = "SELECT name, categories, tags, price \
+      FROM products WHERE enterpriseid = ? AND id = ? LIMIT 1"
+      res = @@session.execute(productCql, arguments: [eid, pid])
+      if res.length == 1
+        msgArgs[:product] = res.first
+      end
+
+      # generate the text to be sent
+      text = TextGenerator.generate(msgArgs[:product])
+      msgArgs[:text] = text
+
+      # send the actual message to the user
+      sendMessage(msgArgs)
+
+    end
+
+    # Sends the actual message to the user
+    def sendMessage(msg)
+
+    end
   end
 
 
@@ -124,10 +194,10 @@ module Notifications
       unless @trendingProducts.empty?
         @users.each do |eid, uids|
           uids.each do |uid|
-            Resque.enque({ userId => uid,
-              productId => @trendingProducts[eid].shuffle[0],
-              eId => eid
-            })
+            Resque.enque(Sender,
+                         uid,
+                         @trendingProducts[eid].shuffle[0],
+                         eid)
           end
         end
       end
@@ -145,7 +215,7 @@ module Notifications
 end
 
 def main
-  Scheduler.perform
+  Notifications::Scheduler.perform
 end
 
 if __FILE__ == $0
