@@ -147,8 +147,8 @@ class Scorer
   #   for a given enterpriseid
   # @param [String] eid Enterprise Id of the enterprise
   def updateAppInits(eid)
-    beginPeriod = @ts
-    endPeriod = @ts + 1
+    beginPeriod = @ts - 10
+    endPeriod = @ts - 1
 
     dayOfWeek = 0
     timeOfDay = 0
@@ -157,6 +157,7 @@ class Scorer
 
     res = @@session.execute(@fetchAppInitStmt, arguments: args)
     res.each do | r |
+      puts r['created_at']
       dayOfWeek, timeOfDay, week = parseDate(r['created_at'])
       argsx = [eid, r['userid'], dayOfWeek, timeOfDay, week, Time.now ]
       @@session.execute(@insertAppOpenStmt, arguments: argsx)
@@ -193,7 +194,7 @@ class Scorer
         todVal = uidStats.fetch(tod, 0) + 1
         uidStats[tod] = todVal
 
-        uidStats.fetch(uid, {}).merge(uidStats)
+#        uidStats.fetch(uid, {}).merge(uidStats)
 
         @nextBaseLine[eid][uid] = uidStats
 
@@ -237,7 +238,7 @@ class Scorer
 
   # Fetch current baseline
   def fetchCurrentBaseline
-    currBaseline = {}
+    currBaseline = Hash.new(Hash.new(Hash.new(0.01)))
     keys = ['enterpriseid', 'userid', 'probability', 'timeofday']
     dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
 
@@ -280,13 +281,15 @@ class Scorer
   # @param [Float] q The second or believed probability. Must be non-zero
   # @return [Float] KL-Divergance score
   def _klDivergence(p, q)
+    p = p.nil? ? 0.01 : p
+    q = q.nil? ? 0.01 : q
     1.0 * p * Math.log(p/q)
   end
 
   # Finds KL-Divergence between new baseline and current baseline
   # @param [Hash] newBaseline the new (calculated) baseline
   # @param [Hash] currBaseline the current (believed) baseline
-  def kldivergence(newBaseline, currBaseline)
+  def kldivergence(currBaseline, newBaseline)
     divergenceScores = {}
     newBaseline.each do | eid, users|
       divergenceScores[eid] = {}
