@@ -88,6 +88,28 @@ module Notifications
     end
   end
 
+  # Helper class to find the floor and ceil of current time
+  # for a window
+  class TimeHelper
+
+    # Find floor time
+    # @param [Time] t Time for which floor needs to be found
+    # @param [Fixnum] n The interval for time window. Defaults to 5
+    def self.floor_to_n_minutes(t, n=5)
+      sec = n * 60
+      rounded = Time.at((t.to_time.to_i / sec).round * sec)
+      t.is_a?(DateTime) ? rounded.to_datetime : rounded
+    end
+
+    # Find ceil time
+    # @param [Time] t Time for which floor needs to be found
+    # @param [Fixnum] n The interval for time window. Defaults to 5
+    def self.ceil_to_n_minutes(t, n=5)
+      sec = n * 60
+      rounded = Time.at((1 + (t.to_time.to_i / sec)).round * sec)
+      t.is_a?(DateTime) ? rounded.to_datetime : rounded
+    end
+  end
 
   class Finder
 
@@ -101,6 +123,8 @@ module Notifications
     def initialize
       @enterprises = []
       @users = []
+      prepareStatements
+      findAllEnterprises
     end
 
     # Parses a timestamp value to return the dayOfWeek,
@@ -118,10 +142,10 @@ module Notifications
 
       # find users who have high probability of opening
       # app in the coming minute
-      forTime = Time.now + (1 * 60)
-      ts = parseDate(forTime)[1]
+      timeForTrendingProducts = TimeHelper.floor_to_n_minutes(Time.now, 1)
+      ts = parseDate(TimeHelper.ceil_to_n_minutes(Time.now, 1))[1]
 
-      findNotificationToSend(forTime)
+      findNotificationToSend(timeForTrendingProducts)
 
       findUsers(ts)
 
@@ -134,12 +158,12 @@ module Notifications
       @fetchTimeSlotsStmt = @@session.prepare(
         "SELECT enterpriseid, timeofday, userid \
         FROM notification_time_slots \
-        WHERE enterpriseif = ? AND \
+        WHERE enterpriseid = ? AND \
         timeofday = ?"
       )
       @fetchTrendingProductStmt = @@session.prepare(
-        "SELECT enterpriseid, productid, divergence \
-        FROM kldivergence WHERE enterpriseid = ? \
+        "SELECT enterpriseid, productid, rank \
+        FROM trending_products WHERE enterpriseid = ? \
         AND ts = ?"
       )
     end
@@ -159,6 +183,7 @@ module Notifications
     # Find the notification to send at a given timestamp
     # @param [Time] ts The time for which notifications would be generated
     def findNotificationToSend(ts)
+      puts "For fetch notification" + ts.gmtime.to_s
       @trendingProducts = {}
       @enterprises.each do |eid|
         @trendingProducts[eid] = {}
@@ -166,13 +191,13 @@ module Notifications
         res = @@session.execute(@fetchTrendingProductStmt, arguments: args)
         res.each do |r|
           pid = r['productid']
-          div = r['divergence']
-          @trendingProducts[eid].merge({ pid => div })
+          rank = r['rank']
+          @trendingProducts[eid] = @trendingProducts[eid].merge({ pid => rank })
         end
-        @trendingProducts[eid] = Hash[@trendingProducts[eid].sort_by { |k,v| -v }]
+        @trendingProducts[eid] = Hash[@trendingProducts[eid].sort_by { |k,v| v }].keys
       end
 
-      DEBUG ? $stdout.puts("Trending Products: #{ @trendingProducts }") : nil
+      DEBUG ? $stdout.puts("** Trending Products: #{ @trendingProducts }") : nil
 
     end
 
@@ -180,13 +205,14 @@ module Notifications
     def findUsers(ts)
       @enterprises.each do |eid|
         args = [eid, ts]
+        puts args.to_s
         res = @@session.execute(@fetchTimeSlotsStmt, arguments: args)
         res.each do |r|
           @users << r['userid']
         end
       end
 
-      DEBUG ? $stdout.puts("Users Hash: #{ @users }") : nil
+      DEBUG ? $stdout.puts("** Users Hash: #{ @users }") : nil
     end
 
     # Enqueue notifications for @users w.r.t. @trendingProducts

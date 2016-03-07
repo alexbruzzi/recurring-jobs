@@ -7,7 +7,8 @@ require 'cassandra'
 DEBUG = true
 
 # Calculates the new base line for app.init event
-#   per user.
+#   per user as well as the global baseline for
+#   an enterprise
 class Scorer
 
   KEYSPACE = 'octo'
@@ -296,7 +297,7 @@ class Scorer
       users.each do | uid, tsProb|
         divergenceScores[eid][uid] = {}
         tsProb.each do |ts, prob|
-          div = _klDivergence(prob, currBaseline[eid][uid][ts])
+          div = _klDivergence(prob, currBaseline.fetch(eid, {}).fetch(uid, {}).fetch(ts, 0.001))
           DEBUG ? $stdout.puts("Divergence Score: #{ div }") : nil
           divergenceScores[eid][uid][ts] = div
         end
