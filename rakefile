@@ -1,0 +1,31 @@
+require 'resque/tasks'
+require 'resque/scheduler/tasks'
+require 'resque/scheduler/server'
+require 'resque-scheduler'
+
+
+
+require_relative 'find_notifications_to_send/findNotifications'
+
+Resque.after_fork do
+  Notifications::Sender.establish_connection
+end
+
+namespace :resque do
+
+  task :setup do
+    require 'yaml'
+    require 'resque'
+
+    Resque.redis = 'localhost:6379'
+  end
+
+  task :setup_schedule => :setup do
+
+    Resque.schedule = YAML.load_file('resque_schedule.yaml')
+
+    require_relative 'find_notifications_to_send/findNotifications'
+  end
+
+  task :scheduler => :setup_schedule
+end

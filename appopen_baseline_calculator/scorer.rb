@@ -2,6 +2,7 @@
 
 require 'Date'
 require 'cassandra'
+require 'set'
 
 
 DEBUG = true
@@ -13,6 +14,9 @@ class Scorer
 
   KEYSPACE = 'octo'
   TIME_WINDOW = 7
+
+  # The max size of a Cql batch statements to execute
+  BATCH_SIZE = 500
 
   # Establishes data base connection and sessions
   def self.establish_connection
@@ -148,21 +152,61 @@ class Scorer
   #   for a given enterpriseid
   # @param [String] eid Enterprise Id of the enterprise
   def updateAppInits(eid)
-    beginPeriod = @ts - 10
-    endPeriod = @ts - 1
+    beginPeriod = @ts.to_time           # beginning of today (00:00 hrs)
+    endPeriod = @ts.to_time + (22*60 + 59)*60 # end of today (23:59 hrs)
 
     dayOfWeek = 0
     timeOfDay = 0
 
-    args = [eid, beginPeriod.to_time.gmtime, endPeriod.to_time.gmtime]
+    args = [eid, beginPeriod.gmtime, endPeriod.gmtime]
+    puts args.to_s
 
     res = @@session.execute(@fetchAppInitStmt, arguments: args)
+    DEBUG ? $stdout.puts("Fetched #{ res.size } app init data points for #{ eid.to_s }") : nil
+
+    # Store the individual app opens for every
+    # (eid, uid, week, dayOfWeek, timeOfDay) combination as a Set of Arrays
+    appOpens = Set.new()
+
+    batch = @@session.batch
+    batchCounter = 0
+    uniqueAppOpenCounter = appOpens.length
     res.each do | r |
-      puts r['created_at']
       dayOfWeek, timeOfDay, week = parseDate(r['created_at'])
-      argsx = [eid, r['userid'], dayOfWeek, timeOfDay, week, Time.now ]
-      @@session.execute(@insertAppOpenStmt, arguments: argsx)
+      argsx = [eid.to_s, r['userid'], dayOfWeek, timeOfDay, week]
+
+      appOpens.add(Set.new(argsx))
+
+      # check if there is an update in the Set length
+      _uniqueAppOpenCounter = appOpens.length
+      if _uniqueAppOpenCounter > uniqueAppOpenCounter
+        # append current Time to the args
+        argsx << Time.now
+
+        # Update the enterpriseId to correct data type
+        eid = argsx.delete_at(0)
+        argsx.unshift(Cassandra::Uuid.new(eid))
+        # add the statement to batch
+        batch.add(@insertAppOpenStmt, argsx)
+        # update counters
+        batchCounter += 1
+        uniqueAppOpenCounter = _uniqueAppOpenCounter
+      end
+
+      # keep flushing the batch at periodic intervals
+      if batchCounter > BATCH_SIZE
+        @@session.execute(batch)
+        batchCounter = 0
+      end
     end
+
+    # check if there are remaining items for another batch execution
+    if batchCounter > 0
+      @@session.execute(batch)
+    end
+
+    DEBUG ? $stdout.puts("Updated #{ appOpens.length } app open events for #{ eid }") : nil
+
   end
 
   # Calculates and returns the new baseline of app.init
@@ -181,7 +225,13 @@ class Scorer
         Date.today - (d * 7)
       end.map(&:cweek)
 
-      dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+      # if the task is scheduled such that it calculates for previous day
+      # uncomment the following code
+      #dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+
+      # If the task is scheduled such that it calculates for current day
+      dayOfWeek = parseDate(Date.today.to_time)[0]
+
       args = [eid, weeks, dayOfWeek]
       res = @@session.execute(@fetchAppOpenStmt, arguments: args)
 

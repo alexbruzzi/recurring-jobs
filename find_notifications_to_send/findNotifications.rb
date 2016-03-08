@@ -17,30 +17,36 @@ module Notifications
   class TextGenerator
 
     TEMPLATES = [
-      "Check out this cool new %{ name } for just Rs %{ price }.",
-      "%{ name } is trending in %{ category } right now. Check it out",
-      "You should totally see this %{ name } in %{ category }. It's just for %{ price }"
+      "Check out this cool new %{name} for just Rs %{price}.",
+      "%{name} is trending in %{category} right now. Check it out",
+      "You should totally see this %{name} in %{category}. It's just for %{price}"
     ]
 
-    def generate(product)
+    def self.generate(product)
       pHash = {
         name: product['name'],
-        category: product['categories'].join(','),
-        price: product['price']
+        category: product[:categories].shuffle[0],
+        price: product['price'].round(2)
       }
       TEMPLATES.sample % pHash
     end
   end
 
   class Sender
+
+    @queue = :push_notification
+
     def self.establish_connection
       @@cluster = Cassandra.cluster
       @@session = @@cluster.connect(KEYSPACE)
     end
 
-    def perform(uid, pid, eid)
+    def self.perform(uid, pid, eid)
 
       msgArgs = {}
+
+      eid = Cassandra::Uuid.new(eid)
+
 
       # get the user tokens
       args = [eid, uid]
@@ -73,17 +79,52 @@ module Notifications
         msgArgs[:product] = res.first
       end
 
+      # get the categories for the product
+      msgArgs[:product].delete('categories').each do |catId|
+        categoriesCql = "SELECT cat_text FROM categories_rev \
+        WHERE id = ?"
+        res = @@session.execute(categoriesCql, arguments: [catId])
+        if res.length == 1
+          r = res.first
+          msgArgs[:product][:categories] = msgArgs[:product].fetch(:categories, []) << r['cat_text']
+        end
+      end
+
+      # get the tags for the product
+      tagCql = @@session.prepare("SELECT tag_text FROM tags_rev WHERE id = ?")
+      msgArgs[:product].delete('tags').each do |tagId|
+        res = @@session.execute(tagCql, arguments: [tagId])
+        if res.length == 1
+          r = res.first
+          msgArgs[:product][:tags] = msgArgs[:product].fetch(:tags, []) << r['tag_text']
+        end
+      end
+
       # generate the text to be sent
       text = TextGenerator.generate(msgArgs[:product])
       msgArgs[:text] = text
 
       # send the actual message to the user
-      sendMessage(msgArgs)
+      sendMessage(msgArgs, eid)
 
     end
 
     # Sends the actual message to the user
-    def sendMessage(msg)
+    def self.sendMessage(msg, eid)
+      if msg.has_key?(:pushToken)
+
+        gcm = GCM.new(msg[:enterprisePushKey])
+        registration_ids = [msg[:pushToken]]
+        notification = {
+          title: 'Check this out',
+          body: msg[:text]
+        }
+        options = {data: {score: '0.98' }, notification: notification}
+        response = gcm.send(registration_ids, options)
+
+        # do something with response
+        DEBUG ? $stdout.puts(response) : nil
+      end
 
     end
   end
@@ -122,7 +163,7 @@ module Notifications
 
     def initialize
       @enterprises = []
-      @users = []
+      @users = {}
       prepareStatements
       findAllEnterprises
     end
@@ -148,6 +189,8 @@ module Notifications
       findNotificationToSend(timeForTrendingProducts)
 
       findUsers(ts)
+
+      enqueueNotifications
 
     end
 
@@ -183,7 +226,7 @@ module Notifications
     # Find the notification to send at a given timestamp
     # @param [Time] ts The time for which notifications would be generated
     def findNotificationToSend(ts)
-      puts "For fetch notification" + ts.gmtime.to_s
+      DEBUG ? $stdout.puts("For fetch notification" + ts.gmtime.to_s) : nil
       @trendingProducts = {}
       @enterprises.each do |eid|
         @trendingProducts[eid] = {}
@@ -204,26 +247,26 @@ module Notifications
     # Find all users to whom the messages need to be sent
     def findUsers(ts)
       @enterprises.each do |eid|
+        @users[eid] = []
         args = [eid, ts]
-        puts args.to_s
         res = @@session.execute(@fetchTimeSlotsStmt, arguments: args)
         res.each do |r|
-          @users << r['userid']
+          @users[eid] = @users[eid] << r['userid']
         end
       end
 
-      DEBUG ? $stdout.puts("** Users Hash: #{ @users }") : nil
+      DEBUG ? $stdout.puts("** Users : #{ @users }") : nil
     end
 
     # Enqueue notifications for @users w.r.t. @trendingProducts
     def enqueueNotifications
-      unless @trendingProducts.empty?
-        @users.each do |eid, uids|
-          uids.each do |uid|
-            Resque.enque(Sender,
-                         uid,
-                         @trendingProducts[eid].shuffle[0],
-                         eid)
+      DEBUG ? $stdout.puts("Trending products #{ @trendingProducts }") : nil
+
+      @trendingProducts.each do |eid, products|
+        if products.length > 0
+          @users[eid].each do |uid|
+            pid = products.shuffle[0]
+            Resque.enqueue(Sender, uid, pid, eid)
           end
         end
       end
@@ -231,6 +274,8 @@ module Notifications
   end
 
   class Scheduler
+
+    @queue = :find_push_notifications
 
     def self.perform
       Finder.establish_connection
