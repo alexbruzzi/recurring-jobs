@@ -66,9 +66,10 @@ module Notifications
       FROM push_keys WHERE enterpriseid = ?"
       res = @@session.execute(enterpriseCql, arguments: [eid])
       if res.length > 0
-        r = res.first
-        msgArgs[:enterprisePushKey] = r['pushkey']
-        msgArgs[:enterprisePushType] = r['pushtype']
+        msgArgs[:pushKey] = {}
+        res.each do |r2|
+          msgArgs[:pushKey] = msgArgs[:pushKey].merge!( { r2['pushtype'] => r2['pushkey'] })
+        end
       end
 
       # get the product to be sent
@@ -111,9 +112,13 @@ module Notifications
 
     # Sends the actual message to the user
     def self.sendMessage(msg, eid)
-      if msg.has_key?(:pushToken)
 
-        gcm = GCM.new(msg[:enterprisePushKey])
+
+      if msg.has_key?(:pushToken)
+        gcmClientKey = msg[:pushKey][msg[:pushType]]
+        puts gcmClientKey
+
+        gcm = GCM.new(gcmClientKey)
         registration_ids = [msg[:pushToken]]
         notification = {
           title: 'Check this out',
