@@ -6,7 +6,7 @@ require 'cassandra'
 require 'resque'
 require 'gcm'
 require 'apns'
-
+require 'json'
 
 module Notifications
 
@@ -35,6 +35,7 @@ module Notifications
   class Sender
 
     @queue = :push_notification
+    SCORE = 0.98
 
     def self.establish_connection
       @@cluster = Cassandra.cluster
@@ -56,9 +57,12 @@ module Notifications
       AND userid = ?"
       res = @@session.execute(pushCql, arguments: args)
       if res.length > 0
-        r = res.first
-        msgArgs[:pushToken] = r['pushtoken']
-        msgArgs[:pushType] = r['pushtype']
+        msgArgs[:userToken] = {}
+        res.each do |r|
+          msgArgs[:userToken][r['pushtype']] = r['pushtoken']
+        end
+#        msgArgs[:pushToken] = r['pushtoken']
+#        msgArgs[:pushType] = r['pushtype']
       end
 
       # get the enterprise token
@@ -106,30 +110,73 @@ module Notifications
       msgArgs[:text] = text
 
       # send the actual message to the user
-      sendMessage(msgArgs, eid)
+      gcmresponse = sendMessage(msgArgs, eid)
+
+
+      if gcmresponse
+        # store the response
+        self.store(gcmresponse, eid, uid)
+      end
+
 
     end
 
     # Sends the actual message to the user
     def self.sendMessage(msg, eid)
 
+      # generate the notification object
+      notification = {
+        title: 'Check this out',
+        body: msg[:text]
+      }
 
-      if msg.has_key?(:pushToken)
-        gcmClientKey = msg[:pushKey][msg[:pushType]]
-        puts gcmClientKey
-
-        gcm = GCM.new(gcmClientKey)
-        registration_ids = [msg[:pushToken]]
-        notification = {
-          title: 'Check this out',
-          body: msg[:text]
-        }
-        options = {data: {score: '0.98' }, notification: notification}
-        response = gcm.send(registration_ids, options)
-
-        # do something with response
-        DEBUG ? $stdout.puts(response) : nil
+      # some random score to be sent
+      score = { score: SCORE }
+      if msg.has_key?(:userToken)
+        puts msg.to_s
+        msg[:userToken].each do |pushtype, pushtoken|
+          puts "Pushtype: #{ pushtype }"
+          if pushtype == 2
+            puts "APNS"
+            # Check env and set the host accordingly
+            #APNS.host = 'gateway.push.apple.com'
+            APNS.host = 'gateway.sandbox.push.apple.com'
+            APNS.pem  = self.getPEMLocationForClient(eid)
+            apnsresponse = APNS.send_notification(pushtoken, :alert => notification, :other => score )
+            puts apnsresponse
+          elsif [0, 1].include?(pushtype)
+              gcmClientKey = msg[:pushKey][pushtype]
+              gcm = GCM.new(gcmClientKey)
+              registration_ids = [pushtoken]
+              options = {data: score, notification: notification}
+              gcmresponse = gcm.send(registration_ids, options)
+          end
+        end
       end
+    end
+
+    # Generates the location where PEM file for
+    #   APNS is stored
+    def self.getPEMLocationForClient(eid)
+      '/Users/pranav/Desktop/Certificates2.pem'
+    end
+
+
+
+    # Store the GCM response into DB
+    def self.store(gcmresponse, eid, uid)
+
+      rBody = JSON.parse(gcmresponse[:body])['results']
+      res = rBody.first
+      gcmid = res['message_id']
+      args = [gcmid, eid, uid, SCORE, false, Time.now]
+
+
+      gcmCql = "INSERT INTO gcm_notifications \
+      (gcmid, enterpriseid, userid, score, ack, sent_at) \
+      VALUES (?, ?, ?, ?, ?)"
+
+      res = @@session.execute(gcmCql, arguments: args)
 
     end
   end
