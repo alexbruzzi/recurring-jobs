@@ -22,13 +22,18 @@ module Notifications
       "You should totally see this %{name} in %{category}. It's just for %{price}"
     ]
 
-    def self.generate(product)
+    def self.generate(product, template=nil)
+
       pHash = {
         name: product['name'],
         category: product[:categories].shuffle[0],
         price: product['price'].round(2)
       }
-      TEMPLATES.sample % pHash
+      if template.nil?
+        TEMPLATES.sample % pHash
+      else
+        template % pHash
+      end
     end
   end
 
@@ -105,8 +110,20 @@ module Notifications
         end
       end
 
+      # get template defined for the client, if any
+      trendingTemplate = nil
+      trendingcql = "SELECT id FROM template_categories WHERE category_type = 'trending'"
+      res = @@session.execute(trendingcql)
+      if res.length > 0
+        templateCql = "SELECT template_text FROM templates WHERE enterpriseid = ? AND tcid = ?"
+        res2 = @@session.execute(templateCql, arguments: [eid, res.first['id']])
+        if res2.length > 0
+          trendingTemplate = res2.first['template_text']
+        end
+      end
+
       # generate the text to be sent
-      text = TextGenerator.generate(msgArgs[:product])
+      text = TextGenerator.generate(msgArgs[:product], trendingTemplate)
       msgArgs[:text] = text
 
       # send the actual message to the user
@@ -133,22 +150,18 @@ module Notifications
       # some random score to be sent
       score = { score: SCORE }
       if msg.has_key?(:userToken)
-        puts msg.to_s
         msg[:userToken].each do |pushtype, pushtoken|
-          puts "Pushtype: #{ pushtype }"
           if pushtype == 2
-            puts "APNS"
             # Check env and set the host accordingly
             #APNS.host = 'gateway.push.apple.com'
             APNS.host = 'gateway.sandbox.push.apple.com'
             APNS.pem  = self.getPEMLocationForClient(eid)
             apnsresponse = APNS.send_notification(pushtoken, :alert => notification, :other => score )
-            puts apnsresponse
           elsif [0, 1].include?(pushtype)
               gcmClientKey = msg[:pushKey][pushtype]
               gcm = GCM.new(gcmClientKey)
               registration_ids = [pushtoken]
-              options = {data: score, notification: notification}
+              options = {data: score, notification: notification, content_available: true, priority: 'high'}
               gcmresponse = gcm.send(registration_ids, options)
           end
         end
@@ -158,7 +171,7 @@ module Notifications
     # Generates the location where PEM file for
     #   APNS is stored
     def self.getPEMLocationForClient(eid)
-      '/Users/pranav/Desktop/Certificates2.pem'
+      '/Users/pranav/Desktop/Certificates10.pem'
     end
 
 
