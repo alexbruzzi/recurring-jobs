@@ -2,16 +2,21 @@
 
 require 'Date'
 require 'cassandra'
+require 'set'
 
 
 DEBUG = true
 
 # Calculates the new base line for app.init event
-#   per user.
+#   per user as well as the global baseline for
+#   an enterprise
 class Scorer
 
   KEYSPACE = 'octo'
   TIME_WINDOW = 7
+
+  # The max size of a Cql batch statements to execute
+  BATCH_SIZE = 500
 
   # Establishes data base connection and sessions
   def self.establish_connection
@@ -147,20 +152,61 @@ class Scorer
   #   for a given enterpriseid
   # @param [String] eid Enterprise Id of the enterprise
   def updateAppInits(eid)
-    beginPeriod = @ts
-    endPeriod = @ts + 1
+    beginPeriod = @ts.to_time           # beginning of today (00:00 hrs)
+    endPeriod = @ts.to_time + (22*60 + 59)*60 # end of today (23:59 hrs)
 
     dayOfWeek = 0
     timeOfDay = 0
 
-    args = [eid, beginPeriod.to_time.gmtime, endPeriod.to_time.gmtime]
+    args = [eid, beginPeriod.gmtime, endPeriod.gmtime]
+    puts args.to_s
 
     res = @@session.execute(@fetchAppInitStmt, arguments: args)
+    DEBUG ? $stdout.puts("Fetched #{ res.size } app init data points for #{ eid.to_s }") : nil
+
+    # Store the individual app opens for every
+    # (eid, uid, week, dayOfWeek, timeOfDay) combination as a Set of Arrays
+    appOpens = Set.new()
+
+    batch = @@session.batch
+    batchCounter = 0
+    uniqueAppOpenCounter = appOpens.length
     res.each do | r |
       dayOfWeek, timeOfDay, week = parseDate(r['created_at'])
-      argsx = [eid, r['userid'], dayOfWeek, timeOfDay, week, Time.now ]
-      @@session.execute(@insertAppOpenStmt, arguments: argsx)
+      argsx = [eid.to_s, r['userid'], dayOfWeek, timeOfDay, week]
+
+      appOpens.add(Set.new(argsx))
+
+      # check if there is an update in the Set length
+      _uniqueAppOpenCounter = appOpens.length
+      if _uniqueAppOpenCounter > uniqueAppOpenCounter
+        # append current Time to the args
+        argsx << Time.now
+
+        # Update the enterpriseId to correct data type
+        eid = argsx.delete_at(0)
+        argsx.unshift(Cassandra::Uuid.new(eid))
+        # add the statement to batch
+        batch.add(@insertAppOpenStmt, argsx)
+        # update counters
+        batchCounter += 1
+        uniqueAppOpenCounter = _uniqueAppOpenCounter
+      end
+
+      # keep flushing the batch at periodic intervals
+      if batchCounter > BATCH_SIZE
+        @@session.execute(batch)
+        batchCounter = 0
+      end
     end
+
+    # check if there are remaining items for another batch execution
+    if batchCounter > 0
+      @@session.execute(batch)
+    end
+
+    DEBUG ? $stdout.puts("Updated #{ appOpens.length } app open events for #{ eid }") : nil
+
   end
 
   # Calculates and returns the new baseline of app.init
@@ -179,7 +225,13 @@ class Scorer
         Date.today - (d * 7)
       end.map(&:cweek)
 
-      dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+      # if the task is scheduled such that it calculates for previous day
+      # uncomment the following code
+      #dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
+
+      # If the task is scheduled such that it calculates for current day
+      dayOfWeek = parseDate(Date.today.to_time)[0]
+
       args = [eid, weeks, dayOfWeek]
       res = @@session.execute(@fetchAppOpenStmt, arguments: args)
 
@@ -193,7 +245,7 @@ class Scorer
         todVal = uidStats.fetch(tod, 0) + 1
         uidStats[tod] = todVal
 
-        uidStats.fetch(uid, {}).merge(uidStats)
+#        uidStats.fetch(uid, {}).merge(uidStats)
 
         @nextBaseLine[eid][uid] = uidStats
 
@@ -237,7 +289,7 @@ class Scorer
 
   # Fetch current baseline
   def fetchCurrentBaseline
-    currBaseline = {}
+    currBaseline = Hash.new(Hash.new(Hash.new(0.01)))
     keys = ['enterpriseid', 'userid', 'probability', 'timeofday']
     dayOfWeek = parseDate(Date.today.prev_day.to_time)[0]
 
@@ -280,20 +332,22 @@ class Scorer
   # @param [Float] q The second or believed probability. Must be non-zero
   # @return [Float] KL-Divergance score
   def _klDivergence(p, q)
+    p = p.nil? ? 0.01 : p
+    q = q.nil? ? 0.01 : q
     1.0 * p * Math.log(p/q)
   end
 
   # Finds KL-Divergence between new baseline and current baseline
   # @param [Hash] newBaseline the new (calculated) baseline
   # @param [Hash] currBaseline the current (believed) baseline
-  def kldivergence(newBaseline, currBaseline)
+  def kldivergence(currBaseline, newBaseline)
     divergenceScores = {}
     newBaseline.each do | eid, users|
       divergenceScores[eid] = {}
       users.each do | uid, tsProb|
         divergenceScores[eid][uid] = {}
         tsProb.each do |ts, prob|
-          div = _klDivergence(prob, currBaseline[eid][uid][ts])
+          div = _klDivergence(prob, currBaseline.fetch(eid, {}).fetch(uid, {}).fetch(ts, 0.001))
           DEBUG ? $stdout.puts("Divergence Score: #{ div }") : nil
           divergenceScores[eid][uid][ts] = div
         end
