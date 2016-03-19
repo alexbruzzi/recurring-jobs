@@ -7,3 +7,9 @@ find_push_notifications:
   queue: find_push_notifications
   args:
   description: "This job calculates push notifications to send"
+process_recommendations:
+  description: "This job processes scores for recommendations"
+  queue: process_recommendations_product
+  cron: "0 * * * *"
+  args:
+  class: "ProductRecommender::Scorer"
