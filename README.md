@@ -30,4 +30,5 @@ rake resque:scheduler
 ```
 QUEUE=push_notification rake resque:work
 QUEUE=find_push_notifications rake resque:work
+QUEUE=producthit_minute_aggregator rake resque:work
 ```

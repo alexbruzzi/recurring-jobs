@@ -14,7 +14,7 @@ module Octo
               Octo::ProductHit.aggregate!
             else
               method_name = Octo::ProductHit.send(:type_counters_method_names, type)
-              Octo::ProductHit.send(method_name.to_sym, Time.now.ceil)
+              Octo::ProductHit.send(method_name.to_sym, Time.now.floor)
             end
           end
         end
