@@ -20,6 +20,7 @@ aggregate_producthit_minute:
   description: Aggregated Product Hits to minutes
   args:
     - :TYPE_MINUTE
+    - 'Octo::ProductHit'
 aggregate_producthit_minute_30:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -27,6 +28,7 @@ aggregate_producthit_minute_30:
   description: Aggregated Product Hits to 30 minutes
   args:
     - :TYPE_MINUTE_30
+    - 'Octo::ProductHit'
 aggregate_producthit_hour:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -34,6 +36,7 @@ aggregate_producthit_hour:
   description: aggregated product hits for last hour
   args:
     - :TYPE_HOUR
+    - 'Octo::ProductHit'
 aggregate_producthit_hour_3:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -41,6 +44,7 @@ aggregate_producthit_hour_3:
   description: Aggregated Product Hits for last 3 hours
   args:
     - :TYPE_HOUR_3
+    - 'Octo::ProductHit'
 aggregate_producthit_hour_6:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -48,6 +52,7 @@ aggregate_producthit_hour_6:
   description: Aggregated Product Hits for last 6 hours
   args:
     - :TYPE_HOUR_6
+    - 'Octo::ProductHit'
 aggregate_producthit_hour_12:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -55,6 +60,7 @@ aggregate_producthit_hour_12:
   description: Aggregated Product Hits for last 12 hours
   args:
     - :TYPE_HOUR_12
+    - 'Octo::ProductHit'
 aggregate_producthit_day:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -62,6 +68,7 @@ aggregate_producthit_day:
   description: Aggregated Product Hits for last day
   args:
     - :TYPE_DAY
+    - 'Octo::ProductHit'
 aggregate_producthit_day_3:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -69,6 +76,7 @@ aggregate_producthit_day_3:
   description: Aggregated Product Hits for last 3 days
   args:
     - :TYPE_DAY_3
+    - 'Octo::ProductHit'
 aggregate_producthit_day_6:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -76,6 +84,7 @@ aggregate_producthit_day_6:
   description: Aggregated Product Hits for last 6 days
   args:
     - :TYPE_DAY_6
+    - 'Octo::ProductHit'
 aggregate_producthit_week:
   cron: "* * * * *"
   class: "Octo::Scheduler::ProductHitAggregator"
@@ -83,3 +92,4 @@ aggregate_producthit_week:
   description: Aggregated Product Hits for last week
   args:
     - :TYPE_WEEK
+    - 'Octo::ProductHit'
