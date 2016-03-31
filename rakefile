@@ -5,6 +5,8 @@ require 'resque-scheduler'
 
 require 'productRecommender'
 
+require_relative 'lib/scheduler'
+
 
 require_relative 'find_notifications_to_send/findNotifications'
 
@@ -25,6 +27,7 @@ namespace :resque do
 
     Resque.schedule = YAML.load_file('resque_schedule.yaml')
 
+    require_relative 'lib/scheduler'
     require_relative 'find_notifications_to_send/findNotifications'
     require 'productRecommender'
   end

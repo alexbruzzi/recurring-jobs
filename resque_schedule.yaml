@@ -1,6 +1,6 @@
 find_push_notifications:
   # Runs every minute and finds the push notifications to send
-  cron: "* * * * *"
+  cron: "0 0 * * *"
   # By default the job name (hash key) will be taken as worker class name.
   # If you want to have a different job name and class name, provide the 'class' option
   class: "Notifications::Scheduler"
@@ -13,3 +13,73 @@ process_recommendations:
   cron: "0 * * * *"
   args:
   class: "ProductRecommender::Scorer"
+aggregate_producthit_minute:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits to minutes
+  args:
+    - :TYPE_MINUTE
+aggregate_producthit_minute_30:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits to 30 minutes
+  args:
+    - :TYPE_MINUTE_30
+aggregate_producthit_hour:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: aggregated product hits for last hour
+  args:
+    - :TYPE_HOUR
+aggregate_producthit_hour_3:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last 3 hours
+  args:
+    - :TYPE_HOUR_3
+aggregate_producthit_hour_6:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last 6 hours
+  args:
+    - :TYPE_HOUR_6
+aggregate_producthit_hour_12:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last 12 hours
+  args:
+    - :TYPE_HOUR_12
+aggregate_producthit_day:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last day
+  args:
+    - :TYPE_DAY
+aggregate_producthit_day_3:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last 3 days
+  args:
+    - :TYPE_DAY_3
+aggregate_producthit_day_6:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last 6 days
+  args:
+    - :TYPE_DAY_6
+aggregate_producthit_week:
+  cron: "* * * * *"
+  class: "Octo::Scheduler::ProductHitAggregator"
+  queue: producthit_minute_aggregator
+  description: Aggregated Product Hits for last week
+  args:
+    - :TYPE_WEEK
