@@ -15,11 +15,10 @@ namespace :resque do
   task :setup do
     require 'resque'
 
-    Resque.redis = 'localhost:6379'
-
     # Make sure Octo is plugged into the consciousness.
     dir = File.expand_path File.dirname(__FILE__)
     Octo.connect_with_config_file(File.join(dir, 'config.yml'))
+    Resque.redis = Cequel::Record.redis
   end
 
   task :setup_schedule => :setup do
