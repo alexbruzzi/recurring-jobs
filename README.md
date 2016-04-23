@@ -27,3 +27,35 @@ Alternate way with multiple workers
 ```bash
 COUNT=10 QUEUE=* rake resque:workers
 ```
+
+Use `Ctrl+C` to kill these.
+
+## Execution (Daemon Mode)
+
+### Scheduler
+
+#### Start
+
+```
+BACKGROUND=yes PIDFILE=shared/pids/resque_scheduler.pid rake resque:scheduler >> /dev/null
+```
+
+#### Kill
+
+```
+kill -QUIT `cat shared/pids/resque_scheduler.pid`
+```
+
+### Worker
+
+#### Start
+
+```
+BACKGROUND=yes PIDFILE=shared/pids/resque_worker.pid COUNT=10 QUEUE=* rake resque:workers >> /dev/null
+```
+
+#### Kill
+
+```
+kill -QUIT `cat shared/pids/resque_worker.pid`
+```

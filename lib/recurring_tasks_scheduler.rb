@@ -1,4 +1,5 @@
 require 'octocore'
+require 'octorecommender'
 
 module Octo
   class RecurringTasksScheduler
@@ -11,6 +12,7 @@ module Octo
 
         # Setup counters schedule
         setup_schedule_counters
+        schedule_recommender
       end
     end
 
