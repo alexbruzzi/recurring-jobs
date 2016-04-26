@@ -11,7 +11,12 @@ module Octo
       def setup_schedules
 
         # Setup counters schedule
-        setup_schedule_counters
+        schedule_counters
+
+        # Setup baseline processing schedule
+        schedule_baseline
+
+        # Setup recommendations processing schedule
         schedule_recommender
       end
     end
