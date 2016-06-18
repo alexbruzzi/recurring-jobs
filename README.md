@@ -2,6 +2,8 @@
 
 This repo contains all the resque recurring jobs. Follow the individual README.md inside project dirs to know more about them.
 
+Clone and perform `git submodule init`
+
 ## Execution ##
 
 For development purposes:
