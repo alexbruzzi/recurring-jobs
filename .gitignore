@@ -2,3 +2,4 @@
 *.rdb
 *.log
 .idea/
+lib/config/config
