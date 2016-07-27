@@ -18,6 +18,9 @@ module Octo
 
         # Setup recommendations processing schedule
         schedule_recommender
+
+        # Setup daily mailer schedule
+        schedule_subscribermail
       end
     end
 
