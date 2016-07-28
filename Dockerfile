@@ -4,8 +4,6 @@ FROM ruby:2.1.5
 MAINTAINER Tushar Dwivedi  <tushar@octo.ai>
 
 #Install dependencies:
-# - build-essentials: to ensure certain gems can be compiled
-#RUN apt-get update && apt-get install -qq -y build-essential
 RUN apt-get update
 
 #Set ENV variable to store app inside the image
@@ -16,14 +14,11 @@ RUN mkdir -p $INSTALL_PATH
 WORKDIR /tmp
 COPY  Gemfile /tmp/Gemfile
 RUN bundle install
-RUN bundle update
-
 
 #Copy application code from workstation to the working directory
 COPY  . $INSTALL_PATH
 
 #Entry Point
 WORKDIR $INSTALL_PATH
-RUN chmod 755 start.sh
-CMD ["/bin/bash", "start.sh"]
-EXPOSE 9001
+CMD ["bash", "-c", "rake resque:scheduler && rake resque:worker"]
+#CMD rake resque:scheduler && rake resque:worker
