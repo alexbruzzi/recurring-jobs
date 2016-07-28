@@ -1,12 +1,12 @@
-sudo:	required
+sudo: required
 
-language:	ruby
+language: ruby
 
-service:
-	-	docker
+services:
+  - docker
 
 before_install:
-	-	docker build -t tushardwivedi/octo-jobs .
-	-	docker pull redis
-	-	docker run -d --name octo_redis redis
-	-	docker run -d --name octo_jobs --link octo_redis:redis tushardwivedi/octo-jobs:latest
+  - docker build -t tushardwivedi/octo-jobs .
+  - docker pull redis
+  - docker run -d --name octo_redis redis
+  - docker run -d --name octo_jobs --link octo_redis:redis tushardwivedi/octo-jobs:latest
