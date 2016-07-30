@@ -1,5 +1,7 @@
 # Recurring Jobs #
 
+[![Build Status](https://travis-ci.org/octoai/recurring-jobs.svg?branch=master)](https://travis-ci.org/octoai/recurring-jobs)
+
 This repo contains all the resque recurring jobs. Follow the individual README.md inside project dirs to know more about them.
 
 Clone and perform `git submodule init`
