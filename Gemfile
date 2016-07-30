@@ -6,3 +6,8 @@ gem 'apns'
 gem 'rpush'
 gem 'octocore'
 gem 'octorecommender'
+
+group :test do
+  gem 'rspec'
+end
+
