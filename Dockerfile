@@ -20,4 +20,4 @@ COPY  . $INSTALL_PATH
 
 #Entry Point
 WORKDIR $INSTALL_PATH
-CMD ["bash", "-c", "rake resque:scheduler && rake resque:worker"]
+CMD rake resque:scheduler && rake resque:worker
