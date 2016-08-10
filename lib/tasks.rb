@@ -16,7 +16,7 @@ namespace :resque do
     require 'resque'
 
     # Make sure Octo is plugged into the consciousness.
-    dir = File.expand_path File.dirname(__FILE__)
+    dir = ENV['CONFIG_DIR'] || File.expand_path(File.dirname(__FILE__))
     Octo.connect_with(File.join(dir, 'config'))
     Resque.redis = Cequel::Record.redis
   end

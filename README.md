@@ -6,6 +6,10 @@ This repo contains all the resque recurring jobs. Follow the individual README.m
 
 Clone and perform `git submodule init`
 
+## Config
+
+By default it loads the config from `lib/config` directory. It also provides an environment variable `CONFIG_DIR` to explicitly specify the config dir. 
+
 ## Execution ##
 
 For development purposes:
@@ -13,7 +17,7 @@ For development purposes:
 #### Start the scheduler ####
 
 ```bash
-rake resque:scheduler
+rake resque:scheduler CONFIG_DIR=/path/to/config
 ```
 
 #### Start the workers ####
